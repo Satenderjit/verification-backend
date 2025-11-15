@@ -7,6 +7,10 @@ connectDB(); // hardcoded MongoDB URI
 
 const app = express();
 app.use(cors());
+app.use(cors({
+  origin: 'https://verification-frontend-retell.vercel.app/', // Replace with your Vercel URL
+  credentials: true
+}));
 app.use(express.json());
 
 app.use("/api/settings", settingsRoutes);
