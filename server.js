@@ -13,6 +13,8 @@ const allowedOrigins = [
   "https://verification-frontend-retell.vercel.app"
 ];
 
+
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow no-origin requests (mobile apps, curl, postman)
