@@ -1,12 +1,14 @@
+// config/db.js
+
 const mongoose = require("mongoose");
 
-const connectDB = async () => {
-  try {
-    await mongoose.connect("mongodb+srv://situ:situ@verification-retell.kd7mnhs.mongodb.net/?appName=verification-retell");
-    console.log("MongoDB Connected");
-  } catch (error) {
-    console.log("DB Error:", error);
-  }
+const connectDB = async () => { // <--- MUST BE DEFINED AS A FUNCTION
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB Connected successfully using ENV variable.");
+  } catch (error) {
+    console.error("DB Error:", error);
+  }
 };
 
-module.exports = connectDB;
+module.exports = connectDB; // <--- MUST EXPORT THE FUNCTION DIRECTLY

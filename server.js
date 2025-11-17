@@ -1,36 +1,29 @@
-// server.js (UPDATED FILE)
+// server.js
+
+// 💡 FIX: Load variables from the local .env file immediately
+require('dotenv').config(); 
 
 const express = require("express");
 const cors = require("cors");
-const connectDB = require("./config/db");
-const settingsRoutes = require("./routes/settingsRoutes");
+const connectDB = require("./config/db"); 
 
-connectDB(); // hardcoded MongoDB URI
+connectDB(); 
 
 const app = express();
 
 const allowedOrigins = [
-  "https://verification-frontend-retell.vercel.app"
+  "https://YOUR-VERCEL-FRONTEND-URL.vercel.app" // REPLACE THIS
 ];
-
-
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow no-origin requests (mobile apps, curl, postman)
     if (!origin) return callback(null, true);
-
-    // Allow any localhost port
     if (origin.startsWith("http://localhost:")) {
       return callback(null, true);
     }
-
-    // Allow deployed frontend
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-
-    // Block everything else
     return callback(new Error("Not allowed by CORS: " + origin));
   },
   credentials: true
@@ -39,10 +32,11 @@ app.use(cors({
 
 app.use(express.json());
 
-app.use("/api/settings", settingsRoutes);
+// Routes
+app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/retell", require("./routes/retellRoutes"));
-// 👇 ADD THIS LINE
 app.use("/api/auth", require("./routes/authRoutes")); 
 
 
-app.listen(5000, () => console.log("Server running on port 5000"));
+// Use process.env.PORT for Render
+app.listen(process.env.PORT || 5000, () => console.log(`Server running on port ${process.env.PORT || 5000}`));
