@@ -1,5 +1,6 @@
 // controllers/retellController.js
 const Settings = require("../models/Settings");
+const retellClient = require("../config/retellClient");
 
 // Retell AI webhook handler
 const retellWebhook = async (req, res) => {
@@ -17,9 +18,9 @@ const retellWebhook = async (req, res) => {
 
     // 💡 FIX 2: Prevent crash if req.body is undefined (e.g., Retell sends a call start event without a message).
     if (!req.body || !req.body.message) {
-        return res.json({ 
-            allow: true, 
-            action: null, 
+        return res.json({
+            allow: true,
+            action: null,
             reply: "" // Send an empty reply to continue the conversation flow (if any)
         });
     }
