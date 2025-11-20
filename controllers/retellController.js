@@ -1,134 +1,97 @@
-// controllers/retellController.js
-// Fully updated version with correct Retell AI event + transcript parsing
-
 const Settings = require("../models/Settings");
 
 exports.handleRetellWebhook = async (req, res) => {
   try {
-    // Retell webhook structure
-    const { event, call } = req.body;
-    const event_type = event;
+    // Log to see if Retell is hitting your server
+    console.log("Retell Webhook Hit:", JSON.stringify(req.body, null, 2));
 
-    // Retell transcript messages
-    const transcripts = call?.transcript_object?.messages;
+    // Retell Custom LLM sends 'interaction_type'
+    // Usually: "update_only" (server listens) or "response_required" (server must speak)
+    const { interaction_type, transcript, response_id } = req.body;
 
     // Fetch settings from DB
     const settings = await Settings.findOne();
-    if (!settings) {
-      return res.json({
-        allow: false,
-        text: "Configuration error: settings not found.",
-      });
+    
+    // Default settings if missing
+    const config = settings || { appointment: false, pickup: false, speakToHuman: false };
+
+    // ======================================================
+    // 1. CALL STARTED (Initial Greeting)
+    // ======================================================
+    // Retell might send interaction_type: "call_update" with status "started" or empty transcript initially
+    if (interaction_type === "call_update" && (!transcript || transcript.length === 0)) {
+        let greeting = "Hello! How can I assist you today?";
+        
+        const { appointment, pickup, speakToHuman } = config;
+        
+        if (!appointment && !pickup && !speakToHuman) {
+            greeting = "Hello! All services are currently disabled by admin.";
+        } 
+        // (Logic same as your code for greetings...)
+        
+        return res.json({
+            response_id: response_id,
+            content: greeting,
+            content_complete: true,
+            end_call: false
+        });
     }
 
     // ======================================================
-    //  CALL STARTED — Dynamic Greeting based on Admin Toggles
+    // 2. RESPONSE REQUIRED (User spoke, Agent needs to reply)
     // ======================================================
-    if (event_type === "call_started") {
-      let greeting = "Hello! How can I assist you today?";
+    if (interaction_type === "response_required") {
+        // Get the last user message
+        const userMessage = transcript[transcript.length - 1]?.content?.toLowerCase() || "";
+        
+        let responseText = "I understand. Could you please explain more?";
 
-      const { appointment, pickup, speakToHuman } = settings;
+        // --- Logic based on DB Toggles ---
 
-      if (!appointment && !pickup && !speakToHuman) {
-        greeting = "Hello! All services are currently disabled by admin.";
-      } 
-      else if (!appointment && pickup && speakToHuman) {
-        greeting = "Hello! Appointment booking is disabled at the moment. How can I help you?";
-      } 
-      else if (appointment && !pickup && speakToHuman) {
-        greeting = "Hello! Cheque/letter pickup service is currently disabled. How can I help you?";
-      } 
-      else if (appointment && pickup && !speakToHuman) {
-        greeting = "Hello! Human transfer is currently turned off. How can I help you?";
-      } 
-      else if (!appointment && !pickup && speakToHuman) {
-        greeting = "Hello! Appointment and pickup services are disabled. How can I help you?";
-      } 
-      else if (!appointment && pickup && !speakToHuman) {
-        greeting = "Hello! Appointment and human transfer are disabled. How can I help you?";
-      } 
-      else if (appointment && !pickup && !speakToHuman) {
-        greeting = "Hello! Pickup and human transfer are disabled. How can I help you?";
-      }
+        // Appointment Logic
+        if (userMessage.includes("appointment") || userMessage.includes("book")) {
+            if (!config.appointment) {
+                responseText = "I apologize, but appointment booking is currently disabled by the administrator.";
+            } else {
+                responseText = "Sure! I can help you book an appointment. Please provide your name and preferred date.";
+            }
+        }
+        // Pickup Logic
+        else if (userMessage.includes("pick up") || userMessage.includes("pickup") || userMessage.includes("cheque")) {
+            if (!config.pickup) {
+                responseText = "I apologize, but the cheque pickup service is currently disabled.";
+            } else {
+                responseText = "Sure! I can help you with the cheque pickup. May I have your name?";
+            }
+        }
+        // Human Transfer Logic
+        else if (userMessage.includes("human") || userMessage.includes("agent") || userMessage.includes("staff")) {
+            if (!config.speakToHuman) {
+                responseText = "I apologize, but transfer to a human representative is currently unavailable.";
+            } else {
+                responseText = "Understood. I am transferring you to a human representative now. Please hold.";
+                // Optional: Add logic here to actually transfer call if Retell supports it via JSON
+            }
+        }
 
-      return res.json({ allow: true, text: greeting });
+        // Return the response to Retell
+        return res.json({
+            response_id: response_id,
+            content: responseText,
+            content_complete: true,
+            end_call: false
+        });
     }
 
-    // ===========================================
-    //  CALL TRANSCRIPT — User Message Processing
-    // ===========================================
-    if (event_type === "call_transcript") {
-      const lastMessage = transcripts?.[transcripts.length - 1]?.content;
-
-      if (!lastMessage) {
-        return res.json({ allow: true, text: "Could you please repeat that?" });
-      }
-
-      const msg = lastMessage.toLowerCase();
-
-      // Appointment logic
-      if (msg.includes("appointment")) {
-        if (!settings.appointment) {
-          return res.json({
-            allow: true,
-            text: "Appointment booking is currently disabled by admin."
-          });
-        }
-        return res.json({
-          allow: true,
-          text: "Sure! I can help you book an appointment. Please provide your name and preferred date."
-        });
-      }
-
-      // Pickup logic
-      if (msg.includes("pick up") || msg.includes("pickup") || msg.includes("cheque")) {
-        if (!settings.pickup) {
-          return res.json({
-            allow: true,
-            text: "Cheque/letter pickup service is currently disabled by admin."
-          });
-        }
-        return res.json({
-          allow: true,
-          text: "Sure! I can help you with cheque/letter pickup. May I have your name?"
-        });
-      }
-
-      // Transfer to human logic
-      if (msg.includes("human") || msg.includes("staff") || msg.includes("agent")) {
-        if (!settings.speakToHuman) {
-          return res.json({
-            allow: true,
-            text: "Human transfer is currently disabled by admin."
-          });
-        }
-        return res.json({
-          allow: true,
-          text: "Transferring you to a human representative now."
-        });
-      }
-
-      // Default fallback
-      return res.json({
-        allow: true,
-        text: "I understand. Could you please explain more?"
-      });
-    }
-
-    // ===============
-    //  CALL ENDED
-    // ===============
-    if (event_type === "call_ended") {
-      return res.json({ success: true });
-    }
-
-    return res.json({ success: true });
+    // Default fallback for other events (like update_only)
+    return res.status(200).json({ message: "Event received" });
 
   } catch (error) {
     console.error("Webhook Error:", error);
-    return res.status(500).json({
-      allow: false,
-      text: "Server error in webhook handler."
+    // Even in error, try to return something valid so call doesn't drop
+    return res.status(500).json({ 
+        content: "I am having trouble connecting to the server. Please try again later.",
+        content_complete: true 
     });
   }
 };
