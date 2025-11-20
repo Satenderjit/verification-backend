@@ -1,9 +1,8 @@
 const express = require("express");
 const router = express.Router();
 
-const { retellWebhook } = require("../controllers/retellController");
+const { handleRetellWebhook } = require("../controllers/retellController");
 
-// Retell AI Webhook endpoint (POST)
-router.post("/webhook", retellWebhook);
+router.post("/webhook", handleRetellWebhook);
 
 module.exports = router;
