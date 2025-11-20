@@ -1,37 +1,50 @@
 // server.js
 
-require('dotenv').config(); 
+require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const connectDB = require("./config/db"); 
+const connectDB = require("./config/db");
 
-connectDB(); 
+connectDB();
 
 const app = express();
 
+// Allowed frontend origins
 const allowedOrigins = [
   "https://verification-frontend-retell.vercel.app"
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (origin.startsWith("http://localhost:")) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow Postman, Retell Webhook, and server-to-server calls
+      if (!origin) return callback(null, true);
 
-    return callback(new Error("Not allowed by CORS: " + origin));
-  },
-  credentials: true
-}));
+      // Allow localhost during development
+      if (origin.startsWith("http://localhost:")) {
+        return callback(null, true);
+      }
+
+      // Allow your deployed frontend
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Block everything else
+      return callback(new Error("Not allowed by CORS: " + origin));
+    },
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
-// Routes
+// API Routes
 app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/retell", require("./routes/retellRoutes"));
-app.use("/api/auth", require("./routes/authRoutes")); 
+app.use("/api/auth", require("./routes/authRoutes"));
 
-app.listen(process.env.PORT || 5000, () => 
-  console.log(`Server running on port ${process.env.PORT || 5000}`)
-);
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
