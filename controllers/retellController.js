@@ -1,127 +1,100 @@
 // controllers/retellController.js
+// Complete file with dynamic greeting logic and transcript handling
+
 const Settings = require("../models/Settings");
-const retellClient = require("../config/retellClient");
 
-// Retell AI webhook handler
-const retellWebhook = async (req, res) => {
-  try {
-    console.log("Retell webhook received:", JSON.stringify(req.body, null, 2)); // Debug log
+exports.handleRetellWebhook = async (req, res) => {
+  try {
+    const { event_type, transcripts, call } = req.body;
 
-    // Load current toggle settings
-    const settings = await Settings.findOne();
+    // Fetch current settings from DB
+    const settings = await Settings.findOne();
+    if (!settings) {
+      return res.json({
+        allow: false,
+        text: "Configuration error: settings not found.",
+      });
+    }
 
-    // 💡 Fallback FIX: Handle missing settings document
-    if (!settings) {
-      return res.status(404).json({
-        response: {
-          allow: false,
-          text: "System Error: Admin settings not initialized.",
-        }
-      });
-    }
+    // ================================
+    //  CALL STARTED — DYNAMIC GREETING
+    // ================================
 
-    // Handle different types of Retell webhook events
-    const { event_type, transcript } = req.body;
+    if (event_type === "call_started") {
+      let greeting = "Hello! How can I assist you today?";
 
-    // For call established events (when call starts)
-    if (event_type === "call_started") {
-      // 🔑 FIX: Wrap response in the 'response' key for all events
-      return res.json({
-        response: {
-          allow: true,
-          text: "Hello! How can I assist you today?",
-        }
-      });
-    }
+      const { appointment, pickup, speakToHuman } = settings;
 
-    // For call ended events
-    if (event_type === "call_ended") {
-      return res.status(200).json({ received: true });
-    }
+      if (!appointment && !pickup && !speakToHuman) {
+        greeting = "Hello! All services are currently disabled by admin.";
+      } else if (!appointment && pickup && speakToHuman) {
+        greeting = "Hello! Appointment booking is disabled at the moment. How can I help you?";
+      } else if (appointment && !pickup && speakToHuman) {
+        greeting = "Hello! Cheque/letter pickup service is currently disabled. How can I help you?";
+      } else if (appointment && pickup && !speakToHuman) {
+        greeting = "Hello! Human transfer is currently turned off. How can I help you?";
+      } else if (!appointment && !pickup && speakToHuman) {
+        greeting = "Hello! Appointment and pickup services are disabled. How can I help you?";
+      } else if (!appointment && pickup && !speakToHuman) {
+        greeting = "Hello! Appointment and human transfer are disabled. How can I help you?";
+      } else if (appointment && !pickup && !speakToHuman) {
+        greeting = "Hello! Pickup and human transfer are disabled. How can I help you?";
+      }
 
-    // For transcript updates (user spoke)
-    if (event_type === "call_transcript" && transcript && transcript.length > 0) {
-      const latestTranscript = transcript[transcript.length - 1];
-      if (latestTranscript.role === "user") {
-        const userMessage = latestTranscript.content.toLowerCase();
+      return res.json({ allow: true, text: greeting });
+    }
 
-        let agentResponse = {}; // Use a temporary object
+    // ================================
+    //  CALL TRANSCRIPT HANDLING
+    // ================================
 
-        // Check Appointment intent
-        if (userMessage.includes("appointment")) {
-          if (settings.appointment) {
-            agentResponse = {
-              allow: true,
-              text: "Sure, I can help with the appointment. What date would you like?",
-            };
-          } else {
-            // 🔑 FIX: allow: false ensures Retell uses the exact text and stops generative conversation
-            agentResponse = {
-              allow: false,
-              text: "Sorry, appointment booking is currently disabled by admin.",
-            };
-          }
-          return res.json({ response: agentResponse }); // Send wrapped response
-        }
+    if (event_type === "call_transcript") {
+      const lastMessage = transcripts?.[transcripts.length - 1]?.content;
+      if (!lastMessage) {
+        return res.json({ allow: true, text: "Could you please repeat that?" });
+      }
 
-        // Check Cheque / Letter Pickup intent
-        if (
-          userMessage.includes("cheque") ||
-          userMessage.includes("letter") ||
-          userMessage.includes("pickup")
-        ) {
-          if (settings.pickup) {
-            agentResponse = {
-              allow: true,
-              text: "Sure, I can help with cheque/letter pickup. Please provide your ID number.",
-            };
-          } else {
-            agentResponse = {
-              allow: false,
-              text: "Cheque/Letter pickup service is currently disabled by admin.",
-            };
-          }
-          return res.json({ response: agentResponse }); // Send wrapped response
-        }
+      // Lowercase for matching
+      const msg = lastMessage.toLowerCase();
 
-        // Check Speak to Human intent
-        if (userMessage.includes("human")) {
-          if (settings.speakToHuman) {
-            agentResponse = {
-              allow: true,
-              text: "Connecting you to a human representative now...",
-            };
-          } else {
-            agentResponse = {
-              allow: false,
-              text: "Human transfer is currently turned off by admin.",
-            };
-          }
-          return res.json({ response: agentResponse }); // Send wrapped response
-        }
+      // Appointment-related responses
+      if (msg.includes("appointment")) {
+        if (!settings.appointment) {
+          return res.json({ allow: true, text: "Appointment booking is currently disabled by admin." });
+        }
+        return res.json({ allow: true, text: "Sure! I can help you book an appointment. Please provide your name and preferred date." });
+      }
 
-        // Default response (no intent detected)
-        return res.json({ 
-          response: { // Send wrapped response
-            allow: true,
-            text: "How can I assist you today?",
-          }
-        });
-      }
-    }
+      // Pickup-related responses
+      if (msg.includes("pick up") || msg.includes("pickup") || msg.includes("cheque")) {
+        if (!settings.pickup) {
+          return res.json({ allow: true, text: "Cheque/letter pickup service is currently disabled by admin." });
+        }
+        return res.json({ allow: true, text: "Sure! I can help you with cheque/letter pickup. May I have your name?" });
+      }
 
-    // Fallback for other types of events or if no user transcript is found
-    return res.json({
-      response: { // Send wrapped response
-        allow: true,
-        text: "I'm here to help. Could you please repeat that?",
-      }
-    });
+      // Human-transfer related responses
+      if (msg.includes("human") || msg.includes("staff") || msg.includes("agent")) {
+        if (!settings.speakToHuman) {
+          return res.json({ allow: true, text: "Human transfer is currently disabled by admin." });
+        }
+        return res.json({ allow: true, text: "Transferring you to a human representative now." });
+      }
 
-  } catch (error) {
-    console.error("Retell Webhook Error:", error);
-    return res.status(500).json({ message: "Server error in Retell Webhook" });
-  }
+      // Default fallback
+      return res.json({ allow: true, text: "I understand. Could you please explain more?" });
+    }
+
+    // ================================
+    //  CALL ENDED
+    // ================================
+
+    if (event_type === "call_ended") {
+      return res.json({ success: true });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ allow: false, text: "Server error in webhook handler." });
+  }
 };
-
-module.exports = { retellWebhook };
