@@ -6,6 +6,7 @@ const express = require("express");
 const cors = require("cors");
 const connectDB = require("./config/db");
 
+// Database connection
 connectDB();
 
 const app = express();
@@ -45,6 +46,21 @@ app.use("/api/settings", require("./routes/settingsRoutes"));
 app.use("/api/retell", require("./routes/retellRoutes"));
 app.use("/api/auth", require("./routes/authRoutes"));
 
-// Start server
+// Default Route (Optional: To check if server is running)
+app.get("/", (req, res) => {
+  res.send("Verification Backend is Running on Vercel!");
+});
+
+// ==========================================
+// VERCEL CONFIGURATION CHANGE IS HERE 👇
+// ==========================================
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Sirf tab listen karein jab local chala rahe ho (Localhost)
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`Server running locally on port ${PORT}`));
+}
+
+// Vercel ke liye App ko export karein (Zaroori hai)
+module.exports = app;
