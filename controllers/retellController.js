@@ -1,34 +1,41 @@
+// controllers/retellController.js
 const Settings = require("../models/Settings");
 
 exports.handleRetellWebhook = async (req, res) => {
   try {
-    // Log to see if Retell is hitting your server
-    console.log("Retell Webhook Hit:", JSON.stringify(req.body, null, 2));
+    // 1. Debugging ke liye Log print karein (Render Dashboard mein dikhega)
+    console.log("--------------------------------------------------");
+    console.log("Retell Webhook Received");
+    // console.log("Body:", JSON.stringify(req.body, null, 2)); // Uncomment for full details
 
-    // Retell Custom LLM sends 'interaction_type'
-    // Usually: "update_only" (server listens) or "response_required" (server must speak)
-    const { interaction_type, transcript, response_id } = req.body;
+    const { interaction_type, transcript, response_id, call } = req.body;
 
-    // Fetch settings from DB
-    const settings = await Settings.findOne();
+    // 2. Database se Toggles (Settings) fetch karein
+    let settings = await Settings.findOne();
     
-    // Default settings if missing
+    // Agar settings DB mein nahi bani hain, to default false maan lein
     const config = settings || { appointment: false, pickup: false, speakToHuman: false };
+    console.log("Current DB Config:", config);
 
     // ======================================================
-    // 1. CALL STARTED (Initial Greeting)
+    // SCENARIO A: CALL START / INITIAL GREETING
     // ======================================================
-    // Retell might send interaction_type: "call_update" with status "started" or empty transcript initially
-    if (interaction_type === "call_update" && (!transcript || transcript.length === 0)) {
-        let greeting = "Hello! How can I assist you today?";
-        
-        const { appointment, pickup, speakToHuman } = config;
-        
-        if (!appointment && !pickup && !speakToHuman) {
-            greeting = "Hello! All services are currently disabled by admin.";
-        } 
-        // (Logic same as your code for greetings...)
-        
+    // Retell "call_update" bhejta hai jab call register hoti hai.
+    // Ya kabhi kabhi pehli request mein transcript empty hoti hai.
+    if (
+        interaction_type === "ping_pong" || // Retell URL verify karne ke liye bhejta hai
+        (interaction_type === "call_update" && call && call.status === "registered") ||
+        (interaction_type === "response_required" && (!transcript || transcript.length === 0))
+    ) {
+        console.log(">> Sending Initial Greeting...");
+
+        let greeting = "Hello! Thanks for calling. How can I assist you today?";
+
+        // Agar saare features disabled hain, to greeting change karein
+        if (!config.appointment && !config.pickup && !config.speakToHuman) {
+            greeting = "Hello! Currently, all our automated services are offline. Please try again later.";
+        }
+
         return res.json({
             response_id: response_id,
             content: greeting,
@@ -38,43 +45,58 @@ exports.handleRetellWebhook = async (req, res) => {
     }
 
     // ======================================================
-    // 2. RESPONSE REQUIRED (User spoke, Agent needs to reply)
+    // SCENARIO B: USER SPOKE (RESPONSE REQUIRED)
     // ======================================================
-    if (interaction_type === "response_required") {
-        // Get the last user message
-        const userMessage = transcript[transcript.length - 1]?.content?.toLowerCase() || "";
+    if (interaction_type === "response_required" && transcript && transcript.length > 0) {
         
-        let responseText = "I understand. Could you please explain more?";
+        // User ki last kahi hui baat nikalein
+        const lastUserMessageObj = transcript[transcript.length - 1];
+        const userMessage = lastUserMessageObj.content.toLowerCase(); // Small letters for easy matching
+        
+        console.log(`>> User Said: "${userMessage}"`);
 
-        // --- Logic based on DB Toggles ---
+        let responseText = "I understand. Could you please provide more details?";
 
-        // Appointment Logic
-        if (userMessage.includes("appointment") || userMessage.includes("book")) {
-            if (!config.appointment) {
+        // --- LOGIC START ---
+
+        // 1. Appointment Booking
+        if (userMessage.includes("appointment") || userMessage.includes("book") || userMessage.includes("schedule")) {
+            if (config.appointment) {
+                responseText = "Sure, I can help you book an appointment. What date and time works best for you?";
+            } else {
                 responseText = "I apologize, but appointment booking is currently disabled by the administrator.";
-            } else {
-                responseText = "Sure! I can help you book an appointment. Please provide your name and preferred date.";
-            }
-        }
-        // Pickup Logic
-        else if (userMessage.includes("pick up") || userMessage.includes("pickup") || userMessage.includes("cheque")) {
-            if (!config.pickup) {
-                responseText = "I apologize, but the cheque pickup service is currently disabled.";
-            } else {
-                responseText = "Sure! I can help you with the cheque pickup. May I have your name?";
-            }
-        }
-        // Human Transfer Logic
-        else if (userMessage.includes("human") || userMessage.includes("agent") || userMessage.includes("staff")) {
-            if (!config.speakToHuman) {
-                responseText = "I apologize, but transfer to a human representative is currently unavailable.";
-            } else {
-                responseText = "Understood. I am transferring you to a human representative now. Please hold.";
-                // Optional: Add logic here to actually transfer call if Retell supports it via JSON
             }
         }
 
-        // Return the response to Retell
+        // 2. Cheque Pickup
+        else if (userMessage.includes("pickup") || userMessage.includes("pick up") || userMessage.includes("cheque") || userMessage.includes("check")) {
+            if (config.pickup) {
+                responseText = "I can certainly help with the cheque pickup. Could you please tell me your location?";
+            } else {
+                responseText = "I am sorry, but the cheque verification and pickup service is currently unavailable.";
+            }
+        }
+
+        // 3. Speak to Human / Agent
+        else if (userMessage.includes("human") || userMessage.includes("agent") || userMessage.includes("representative") || userMessage.includes("person")) {
+            if (config.speakToHuman) {
+                responseText = "Understood. Please hold the line while I transfer you to a human representative.";
+                // Future Update: Yahan aap 'transfer_call' tool bhi add kar sakte hain
+            } else {
+                responseText = "I apologize, but no human representatives are available at the moment to take your call.";
+            }
+        }
+
+        // 4. General / Context Maintain (Basic Fallback)
+        else {
+            // Agar user ne kuch aisa bola jo upar match nahi hua, to generic reply
+            responseText = "Could you please clarify if you need help with an appointment, a cheque pickup, or speaking to an agent?";
+        }
+
+        // --- LOGIC END ---
+
+        console.log(`>> AI Replying: "${responseText}"`);
+
         return res.json({
             response_id: response_id,
             content: responseText,
@@ -83,15 +105,16 @@ exports.handleRetellWebhook = async (req, res) => {
         });
     }
 
-    // Default fallback for other events (like update_only)
-    return res.status(200).json({ message: "Event received" });
+    // Agar koi aur event aaye (jaise call_ended), to bas 200 OK bhejein
+    return res.status(200).json({ message: "Event acknowledged" });
 
   } catch (error) {
-    console.error("Webhook Error:", error);
-    // Even in error, try to return something valid so call doesn't drop
-    return res.status(500).json({ 
-        content: "I am having trouble connecting to the server. Please try again later.",
-        content_complete: true 
+    console.error("!! Controller Error:", error);
+    // Retell ko error response bhejein taaki call drop na ho, bas AI bole ki issue hai
+    return res.status(500).json({
+        content: "I am experiencing a technical issue connecting to the database. Please try again later.",
+        content_complete: true,
+        end_call: true
     });
   }
 };
