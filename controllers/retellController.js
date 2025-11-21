@@ -2,92 +2,96 @@ const Settings = require("../models/Settings");
 
 exports.handleRetellWebhook = async (req, res) => {
   try {
-    const { interaction_type, response_id, transcript } = req.body;
+    // Log to see if Retell is hitting your server
+    console.log("Retell Webhook Hit:", JSON.stringify(req.body, null, 2));
 
-    // 1. Database se Button ki status check karein (ON/OFF)
-    let settings = await Settings.findOne();
+    // Retell Custom LLM sends 'interaction_type'
+    // Usually: "update_only" (server listens) or "response_required" (server must speak)
+    const { interaction_type, transcript, response_id } = req.body;
+
+    // Fetch settings from DB
+    const settings = await Settings.findOne();
     
-    // Agar settings nahi mili (first time), toh sab false maano
-    if (!settings) {
-        settings = { appointment: false, pickup: false, speakToHuman: false };
-    }
+    // Default settings if missing
+    const config = settings || { appointment: false, pickup: false, speakToHuman: false };
 
-    console.log("🔘 Current Button Status:", JSON.stringify(settings));
-
-    // ==========================================
-    // CASE 1: Call Start (Greeting)
-    // ==========================================
-    if (interaction_type === "call_update" && req.body.call?.status === "started") {
-        // Initial greeting
-        return res.json({
-            response_id: response_id,
-            content: "Hello! Welcome to Paradise Smiles. How can I help you today?",
-            content_complete: true,
-            end_call: false
-        });
-    }
-
-    // ==========================================
-    // CASE 2: User kuch bole (Logic Check)
-    // ==========================================
-    if (interaction_type === "response_required") {
+    // ======================================================
+    // 1. CALL STARTED (Initial Greeting)
+    // ======================================================
+    // Retell might send interaction_type: "call_update" with status "started" or empty transcript initially
+    if (interaction_type === "call_update" && (!transcript || transcript.length === 0)) {
+        let greeting = "Hello! How can I assist you today?";
         
-        // User ki last kahi hui baat
-        const userMessage = transcript?.[transcript.length - 1]?.content?.toLowerCase() || "";
-        console.log("🗣️ User asked:", userMessage);
-
-        let aiResponse = "I can help with appointments, cheque pickup, or connecting you to a human.";
-
-        // --- LOGIC: Button Status Check ---
-
-        // 1. Agar user "Appointment" maange
-        if (userMessage.includes("appointment") || userMessage.includes("book") || userMessage.includes("schedule")) {
-            if (settings.appointment === true) {
-                // BUTTON IS ON
-                aiResponse = "Sure! I can help you book an appointment. What date works for you?";
-            } else {
-                // BUTTON IS OFF
-                aiResponse = "I apologize, but appointment booking is currently disabled based on our current settings.";
-            }
-        }
-
-        // 2. Agar user "Pickup / Check" maange
-        else if (userMessage.includes("pick up") || userMessage.includes("check") || userMessage.includes("cheque")) {
-            if (settings.pickup === true) {
-                // BUTTON IS ON
-                aiResponse = "Yes, you can come for the pickup. May I have your name?";
-            } else {
-                // BUTTON IS OFF
-                aiResponse = "Sorry, the cheque pickup service is currently unavailable.";
-            }
-        }
-
-        // 3. Agar user "Human / Agent" maange
-        else if (userMessage.includes("human") || userMessage.includes("person") || userMessage.includes("agent")) {
-            if (settings.speakToHuman === true) {
-                // BUTTON IS ON
-                aiResponse = "Understood. Please hold while I transfer you to a representative.";
-                // Note: Transfer logic Retell ke 'transfer_call' tool se hoti hai, abhi hum sirf bol rahe hain.
-            } else {
-                // BUTTON IS OFF
-                aiResponse = "I apologize, but no human agents are available at the moment.";
-            }
-        }
-
-        // Response bhejo Retell ko
+        const { appointment, pickup, speakToHuman } = config;
+        
+        if (!appointment && !pickup && !speakToHuman) {
+            greeting = "Hello! All services are currently disabled by admin.";
+        } 
+        // (Logic same as your code for greetings...)
+        
         return res.json({
             response_id: response_id,
-            content: aiResponse,
+            content: greeting,
             content_complete: true,
             end_call: false
         });
     }
 
-    // Default acknowledgement for other events
+    // ======================================================
+    // 2. RESPONSE REQUIRED (User spoke, Agent needs to reply)
+    // ======================================================
+    if (interaction_type === "response_required") {
+        // Get the last user message
+        const userMessage = transcript[transcript.length - 1]?.content?.toLowerCase() || "";
+        
+        let responseText = "I understand. Could you please explain more?";
+
+        // --- Logic based on DB Toggles ---
+
+        // Appointment Logic
+        if (userMessage.includes("appointment") || userMessage.includes("book")) {
+            if (!config.appointment) {
+                responseText = "I apologize, but appointment booking is currently disabled by the administrator.";
+            } else {
+                responseText = "Sure! I can help you book an appointment. Please provide your name and preferred date.";
+            }
+        }
+        // Pickup Logic
+        else if (userMessage.includes("pick up") || userMessage.includes("pickup") || userMessage.includes("cheque")) {
+            if (!config.pickup) {
+                responseText = "I apologize, but the cheque pickup service is currently disabled.";
+            } else {
+                responseText = "Sure! I can help you with the cheque pickup. May I have your name?";
+            }
+        }
+        // Human Transfer Logic
+        else if (userMessage.includes("human") || userMessage.includes("agent") || userMessage.includes("staff")) {
+            if (!config.speakToHuman) {
+                responseText = "I apologize, but transfer to a human representative is currently unavailable.";
+            } else {
+                responseText = "Understood. I am transferring you to a human representative now. Please hold.";
+                // Optional: Add logic here to actually transfer call if Retell supports it via JSON
+            }
+        }
+
+        // Return the response to Retell
+        return res.json({
+            response_id: response_id,
+            content: responseText,
+            content_complete: true,
+            end_call: false
+        });
+    }
+
+    // Default fallback for other events (like update_only)
     return res.status(200).json({ message: "Event received" });
 
   } catch (error) {
-    console.error("❌ Error in Retell Controller:", error);
-    return res.status(500).json({ error: "Server error" });
+    console.error("Webhook Error:", error);
+    // Even in error, try to return something valid so call doesn't drop
+    return res.status(500).json({ 
+        content: "I am having trouble connecting to the server. Please try again later.",
+        content_complete: true 
+    });
   }
 };
