@@ -11,15 +11,17 @@ const retellRoutes = require("./routes/retellRoutes");
 const app = express();
 
 // ==========================================
-// 1. MIDDLEWARE & SECURITY
+// 1. MIDDLEWARE & SECURITY (CORS FIX)
 // ==========================================
 
-// Define allowed origins (Your Frontend URL)
-// Add your Vercel URL here when deployed
+// Define allowed origins
 const allowedOrigins = [
   "http://localhost:3000", 
+  "http://localhost:3002",
   "http://localhost:5173",
-  "https://verification-frontend-retell.vercel.app" 
+  "https://verification-frontend-retell.vercel.app",
+  // 👇 THIS IS THE NEW LINE FIXING YOUR ERROR
+  "https://verification-frontend-ny58p24l5-satenders-projects-f218d133.vercel.app"
 ];
 
 app.use(
@@ -34,11 +36,11 @@ app.use(
       }
       return callback(null, true);
     },
-    credentials: true,
+    credentials: true, 
   })
 );
 
-app.use(express.json()); // Parse incoming JSON requests
+app.use(express.json());
 
 // ==========================================
 // 2. DATABASE CONNECTION
@@ -49,29 +51,21 @@ const connectDB = async () => {
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     console.error(`❌ Error: ${error.message}`);
-    process.exit(1); // Stop server if DB fails
+    process.exit(1); 
   }
 };
 
-// Connect to Database
 connectDB();
 
 // ==========================================
 // 3. API ROUTES
 // ==========================================
-
-// Auth Routes (Login/Register for Admin Dashboard)
 app.use("/api/auth", authRoutes);
-
-// Settings Routes (Get/Update Toggles)
 app.use("/api/settings", settingsRoutes);
-
-// Retell AI Webhook (The Workflow Logic)
 app.use("/api/retell", retellRoutes);
 
-// Default Route (Health Check)
 app.get("/", (req, res) => {
-  res.send("API is running...");
+  res.send("Verification Backend is Running!");
 });
 
 // ==========================================
