@@ -2,114 +2,67 @@ const Settings = require("../models/Settings");
 
 exports.handleRetellWebhook = async (req, res) => {
   try {
-    console.log("\n🔹 Retell Request Received 🔹");
-    
-    const { interaction_type, transcript, response_id } = req.body;
+    const { event, transition_name } = req.body;
 
-    // 1. Database se latest Settings/Toggles fetch karein
+    // 1. Ignore non-transition events (like ping or call_started)
+    if (event !== "transition_triggered") {
+      return res.status(200).json({ message: "Event received" });
+    }
+
+    console.log(`🔹 Transition Requested: "${transition_name}"`);
+
+    // 2. Get Toggles from DB
     let settings = await Settings.findOne();
-    
-    // Agar settings nahi mili, to default values
-    const config = settings || { appointment: false, pickup: false, speakToHuman: false };
-    
-    console.log(`👉 DB Config -> Appointment: ${config.appointment}, Pickup: ${config.pickup}, Human: ${config.speakToHuman}`);
-
-    // ============================================================
-    // STEP 1: INITIAL GREETING (Jab Call Connect hoti hai)
-    // ============================================================
-    // Logic: Agar transcript khali hai, iska matlab call abhi shuru hui hai -> Hum Hello bolenge.
-    if (!transcript || transcript.length === 0 || interaction_type === "call_update") {
-        
-        console.log("🎤 Sending Initial Greeting...");
-
-        let greeting = "Hello! How can I assist you today?";
-
-        // Agar Appointment ON hai, to greeting mein mention karein
-        if (config.appointment && !config.pickup) {
-            greeting = "Hello! I can help you book an appointment. How can I assist you?";
-        }
-        // Agar saare toggles OFF hain
-        else if (!config.appointment && !config.pickup && !config.speakToHuman) {
-            greeting = "Hello! Please note that all our automated services are currently unavailable.";
-        }
-
-        return res.json({
-            response_id: response_id,
-            content: greeting,
-            content_complete: true,
-            end_call: false
-        });
+    if (!settings) {
+      // Default to enabled if no DB entry exists yet
+      settings = { appointment: true, pickup: true, speakToHuman: true };
     }
 
-    // ============================================================
-    // STEP 2: USER REPLY HANDLING (Jab User kuch bolta hai)
-    // ============================================================
-    if (interaction_type === "response_required" && transcript.length > 0) {
-        
-        const lastUserMessage = transcript[transcript.length - 1].content.toLowerCase();
-        console.log(`🗣️ User Said: "${lastUserMessage}"`);
+    // 3. CHECK LOGIC (Exact names from your Retell screenshot)
 
-        let responseText = "I'm sorry, I didn't quite catch that.";
-
-        // --- LOGIC START: Check Toggles ---
-
-        // 1. APPOINTMENT (User asks to book)
-        if (lastUserMessage.includes("appointment") || lastUserMessage.includes("book") || lastUserMessage.includes("schedule")) {
-            if (config.appointment) { // Toggle ON (Green)
-                responseText = "Sure! I can definitely help you book an appointment. What date works for you?";
-            } else { // Toggle OFF (Grey)
-                responseText = "I apologize, but we are not accepting appointment bookings at this time.";
-            }
-        }
-
-        // 2. PICKUP CHECK (User asks for pickup)
-        else if (lastUserMessage.includes("pickup") || lastUserMessage.includes("check") || lastUserMessage.includes("cheque")) {
-            if (config.pickup) { // Toggle ON
-                responseText = "Okay, I can arrange a cheque pickup. Could you verify your address?";
-            } else { // Toggle OFF (Grey - Jaise aapke screenshot mein hai)
-                responseText = "I'm sorry, but the cheque pickup service is currently disabled.";
-            }
-        }
-
-        // 3. SPEAK TO HUMAN (User asks for agent)
-        else if (lastUserMessage.includes("human") || lastUserMessage.includes("agent") || lastUserMessage.includes("person")) {
-            if (config.speakToHuman) { // Toggle ON
-                responseText = "Understood. Please hold the line while I connect you to a human agent.";
-            } else { // Toggle OFF
-                responseText = "I apologize, but there are no human agents available right now.";
-            }
-        }
-
-        // 4. GREETING REPLY (User says Hello back)
-        else if (lastUserMessage.includes("hello") || lastUserMessage.includes("hi")) {
-             responseText = "Hello there! Would you like to book an appointment or enquire about a pickup?";
-        }
-        
-        // 5. UNKNOWN REQUEST
-        else {
-            responseText = "I can help with appointments and pickups. Which one do you need?";
-        }
-
-        console.log(`🤖 AI Will Say: "${responseText}"`);
-
-        // Send Response back to Retell
+    // --- A. APPOINTMENT ---
+    if (transition_name === "User want to booked an appointment") {
+      if (!settings.appointment) {
+        console.log("⛔ Blocking Appointment");
         return res.json({
-            response_id: response_id,
-            content: responseText,
-            content_complete: true,
-            end_call: false
+          override: {
+            response: "I apologize, but our appointment booking system is currently unavailable. Is there anything else I can help with?"
+          }
         });
+      }
     }
 
-    // Fallback for other events (Ping/Pong etc)
-    return res.status(200).json({ message: "Event received" });
+    // --- B. CHEQUE PICKUP ---
+    if (transition_name === "User want to pick up a cheque or letter") {
+      if (!settings.pickup) {
+        console.log("⛔ Blocking Pickup");
+        return res.json({
+          override: {
+            response: "Sorry, cheque pickups are currently disabled. Please contact our office directly for assistance."
+          }
+        });
+      }
+    }
+
+    // --- C. SPEAK TO HUMAN ---
+    if (transition_name === "user ask to speak to a human") {
+      if (!settings.speakToHuman) {
+        console.log("⛔ Blocking Human Transfer");
+        return res.json({
+          override: {
+            response: "All our human agents are currently busy or unavailable. Please try again later."
+          }
+        });
+      }
+    }
+
+    // 4. If not blocked, ALLOW the workflow to proceed
+    console.log("✅ Allowing Transition");
+    return res.json({ allow: true });
 
   } catch (error) {
-    console.error("❌ Server Error:", error);
-    // Agar error aaye tab bhi kuch return karein taaki call drop na ho
-    return res.status(500).json({ 
-        content: "I am having some trouble connecting. Please try again.",
-        content_complete: true 
-    });
+    console.error("❌ Webhook Error:", error);
+    // Fail-safe: Allow workflow to continue so the call doesn't hang
+    return res.json({ allow: true });
   }
 };
