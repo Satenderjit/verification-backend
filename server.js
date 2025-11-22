@@ -11,32 +11,28 @@ const retellRoutes = require("./routes/retellRoutes");
 const app = express();
 
 // ==========================================
-// 1. MIDDLEWARE & SECURITY (CORS FIX)
+// 1. SECURITY (CORS) - PRODUCTION MODE
 // ==========================================
 
-// Define allowed origins
+// Only allow your specific Vercel Frontend
 const allowedOrigins = [
-  "http://localhost:3000", 
-  "http://localhost:3002",
-  "http://localhost:5173",
-  "https://verification-frontend-retell.vercel.app",
-  // 👇 THIS IS THE NEW LINE FIXING YOUR ERROR
   "https://verification-frontend-ny58p24l5-satenders-projects-f218d133.vercel.app"
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, Postman, or Retell Webhook)
+      // (A) Allow requests with no origin (like Retell Webhooks, Postman, Mobile Apps)
       if (!origin) return callback(null, true);
 
+      // (B) Block any origin that is NOT in the allowed list
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg = "The CORS policy for this site does not allow access from the specified Origin.";
         return callback(new Error(msg), false);
       }
       return callback(null, true);
     },
-    credentials: true, 
+    credentials: true,
   })
 );
 
@@ -51,7 +47,7 @@ const connectDB = async () => {
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     console.error(`❌ Error: ${error.message}`);
-    process.exit(1); 
+    process.exit(1);
   }
 };
 
@@ -60,12 +56,14 @@ connectDB();
 // ==========================================
 // 3. API ROUTES
 // ==========================================
+
 app.use("/api/auth", authRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/retell", retellRoutes);
 
+// Health Check Route
 app.get("/", (req, res) => {
-  res.send("Verification Backend is Running!");
+  res.send("Backend is running in Production Mode.");
 });
 
 // ==========================================
