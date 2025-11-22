@@ -14,18 +14,20 @@ const app = express();
 // 1. SECURITY (CORS) - PRODUCTION MODE
 // ==========================================
 
-// Only allow your specific Vercel Frontend
 const allowedOrigins = [
-  "https://verification-frontend-ny58p24l5-satenders-projects-f218d133.vercel.app"
+  // 👇 The Long Deployment URL (You had this)
+  "https://verification-frontend-ny58p24l5-satenders-projects-f218d133.vercel.app",
+  
+  // 👇 The Main Domain (You are visiting this one, so we MUST add it)
+  "https://verification-frontend-retell.vercel.app"
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // (A) Allow requests with no origin (like Retell Webhooks, Postman, Mobile Apps)
+      // Allow requests with no origin (like Retell Webhooks, Postman)
       if (!origin) return callback(null, true);
 
-      // (B) Block any origin that is NOT in the allowed list
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg = "The CORS policy for this site does not allow access from the specified Origin.";
         return callback(new Error(msg), false);
